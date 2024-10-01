@@ -1469,6 +1469,10 @@ int boot_config_load(
                 r = boot_entries_find_unified(config, xbootldr_path, "/EFI/Linux/");
                 if (r < 0)
                         return r;
+
+                r = boot_entries_find_unified_global_addons(config, xbootldr_path, "/loader/addons/");
+                if (r < 0)
+                        return r;
         }
 
         return boot_config_finalize(config);
