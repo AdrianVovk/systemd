@@ -168,6 +168,15 @@
       PCR 12 (if a TPM is present).</para></listitem>
 
       <listitem><para>Similarly, files
+      <filename><replaceable>foo</replaceable>.efi.extra.d/*.confext.raw</filename> are packed up in a
+      <command>cpio</command> archive and placed in the <filename>/.extra/confext/</filename> directory in
+      the initrd file hierarchy. This is supposed to be used to pass additional configuration extension
+      images to the initrd. See
+      <citerefentry><refentrytitle>systemd-confext</refentrytitle><manvolnum>8</manvolnum></citerefentry> for
+      details on configuration extension images. The generated <command>cpio</command> archive containing
+      these system extension images is measured into TPM PCR 12 (if a TPM is present).</para></listitem>
+
+      <listitem><para>Similarly, files
       <filename><replaceable>foo</replaceable>.efi.extra.d/*.sysext.raw</filename> are packed up in a
       <command>cpio</command> archive and placed in the <filename>/.extra/sysext/</filename> directory in the
       initrd file hierarchy. This is supposed to be used to pass additional system extension images to the
@@ -179,15 +188,6 @@
       <!-- Note: the actual suffix we look for for sysexts is just *.raw (not *.sysext.raw), for
            compatibility reasons with old versions. But we want people to name their system extensions
            properly, hence we document the *.sysext.raw suffix only. -->
-
-      <listitem><para>Similarly, files
-      <filename><replaceable>foo</replaceable>.efi.extra.d/*.confext.raw</filename> are packed up in a
-      <command>cpio</command> archive and placed in the <filename>/.extra/confext/</filename> directory in
-      the initrd file hierarchy. This is supposed to be used to pass additional configuration extension
-      images to the initrd. See
-      <citerefentry><refentrytitle>systemd-confext</refentrytitle><manvolnum>8</manvolnum></citerefentry> for
-      details on configuration extension images. The generated <command>cpio</command> archive containing
-      these system extension images is measured into TPM PCR 12 (if a TPM is present).</para></listitem>
 
       <listitem><para>Similarly, files
       <filename><replaceable>foo</replaceable>.efi.extra.d/*.addon.efi</filename> are loaded and verified as
