@@ -8,10 +8,10 @@
 #  (at your option) any later version.
 
 [Unit]
-Description=App Management Service Socket
+Description=App Instance Management Service Socket
 #Documentation=TODO
 
 [Socket]
-ListenStream=/run/systemd/io.systemd.App
+ListenStream=/run/systemd/io.systemd.AppInstance
 FileDescriptorName=varlink
-Accept=yes
+Accept=no

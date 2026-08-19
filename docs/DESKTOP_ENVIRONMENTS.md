@@ -60,6 +60,8 @@ desktop environments should adhere to the following conventions:
     - `app-org.kde.amarok.service`
     - `app-org.gnome.Evince-12345.scope`
 
+TODO: Fix this naming scheme to clarify that "<launcher>" means the desktop environment
+
  * Using `.service` units instead of `.scope` units, i.e. allowing systemd to
    start the process on behalf of the caller,
    instead of the caller starting the process and letting systemd know about it,
@@ -95,7 +97,7 @@ currently using a drop-in to configure `BindTo=graphical-session.target`,
 I feel that such a policy makes sense, but it may make much more sense to just define a
 global default for all (graphical) applications.
 
- * Should application lifetime be bound to the session?
+ * Should application lifetime be bound to the session? TODO: yes. We should have drop-ins for app-.service and app-.scope to
  * May the user have applications that do not belong to the graphical session (e.g. launched from SSH)?
  * Could we maybe add a default `app-.service.d` drop-in configuration?
 

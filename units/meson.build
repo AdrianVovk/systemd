@@ -262,15 +262,6 @@ units = [
         { 'file' : 'system-update-pre.target' },
         { 'file' : 'system-update.target' },
         {
-          'file' : 'systemd-appd.socket',
-          'symlinks' : ['sockets.target.wants/'],
-          'conditions' : ['ENABLE_APPD'],
-        },
-        {
-          'file' : 'systemd-appd@.service.in',
-          'conditions' : ['ENABLE_APPD'],
-        },
-        {
           'file' : 'systemd-ask-password.socket',
           'symlinks' : ['sockets.target.wants/']
         },
