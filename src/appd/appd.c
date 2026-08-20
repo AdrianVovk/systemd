@@ -2,8 +2,11 @@
 
 #include "alloc-util.h"
 #include "cgroup-util.h"
+#include "errno-util.h"
+#include "fd-util.h"
 #include "log.h"
 #include "main-func.h"
+#include "path-util.h"
 #include "unit-name.h"
 #include "varlink-util.h"
 #include "varlink-io.systemd.AppInstance.h"
@@ -24,10 +27,99 @@
 // /app.slice/app-<launcher>-<appid>-<instance>.scope/<app controlled>
 // /app.slice/app[-<launcher>]-<appid>@<instance>.service/<app controlled>
 
-// Algorithm to transform a cgroup name to a stable FD to the appd cgroup:
-// - Get the cgroup path from the pidref
-// - Open that cgroup
-//
+static int attempt_find_cgroup(const PidRef *instance, char **ret_path) {
+        int r;
+
+        assert(instance);
+        assert(ret_path);
+
+        _cleanup_free_ char *path = NULL;
+        r = cg_pidref_get_path(instance, &path);
+        if (r < 0)
+                return r;
+
+        char *cursor = path;
+        for (;;) {
+                *cursor = '\0';
+
+                _cleanup_free_ char *id = NULL;
+                r = cg_get_xattr(empty_to_root(path), "user.app_id", &id, NULL);
+                if (r < 0 && r != -ENODATA)
+                        return r;
+                if (r >= 0)
+                        break;
+
+                /* Make sure we don't cross into a delegated (read: app-controlled)
+                 * cgroup hierarchy and parse untrusted data! */
+                r = cg_is_delegated(empty_to_root(path));
+                if (r > 0)
+                        return -ENOENT;
+                if (r < 0)
+                        return r;
+
+                *cursor = '/';
+                cursor = strchr(cursor + 1, '/');
+                if (!cursor)
+                        return -ENOENT;
+        }
+
+        if (!cursor)
+                return -ENOENT;
+
+        *ret_path = TAKE_PTR(path);
+        return TAKE_FD(fd);
+}
+
+static int find_cgroup(const PidRef *instance, char **ret_path) {
+        int r;
+
+        assert(instance);
+        assert(ret_path);
+
+        for (int attempt = 0; attempt < 3; attempt++) {
+                r = attempt_find_cgroup(instance, ret_path);
+                if (r >= 0)
+                        return r;
+        }
+
+        return r;
+}
+
+static int find_cgroup(const PidRef *instance) {
+        // Fetch a file descriptor to the pidref's cgroup in a race-free way
+        // CASE 1: we have pidref cgroup handles available
+        //      Get pidref cgroupid handle
+        //      Fetch pidref's cgroup path
+        //      Open it
+        //      Get its handle
+        //
+        // Fetch the pidref's cgroup path
+        // Open it
+
+        // Go through map of tracked cgroups. For each tracked cgroup
+        //      See if pidref's cgroup path starts with tracked cgroup
+        //      If so, then return the tracked cgroup
+
+        // No tracked cgroups matched, so we need to start tracking anew
+        // Open the root of the cgroup heirarchy
+        // In a loop:
+        //      Check if existing open cgroup has app_id xattr
+        //      if it does: break
+        //      Check if existing open cgroup is marked as a delegate
+        //      If it does: return -ENOENT. We don't have a managing cgroup
+        //      if not, follow one path component down
+        //      If there aren't any more components to follow, return -ENOENT
+
+        // Compute the path of the pidref's cgroup relative to the one we just found
+        // Try to open that relative path from the parent we just found
+        // Check dev+ino of the two fd's we've got open
+
+        // Compare the handles of this fd we just opened w/ the original fd we opened?
+
+        // Start tracking the cgroup
+        // return newly-tracked cgroup
+        return 0;
+}
 
 static int ensure_cgroup(const PidRef *instance, const char *instance_app_id, char *ret_cgroup) {
         int r;
@@ -62,9 +154,24 @@ static int ensure_cgroup(const PidRef *instance, const char *instance_app_id, ch
         // while Scope creation failed b/c of duplicate
 }
 
-typedef struct MethodRegisterParams {
+typedef struct RegisterRequest {
+        sd_varlink *link;
         const char *id;
-} MethodRegisterParams;
+        const char *collection;
+        const char *sandbox;
+        // TODO: permissions
+        // TODO: entitlements
+} RegisterRequest;
+
+static RegisterRequest* register_request_free(RegisterRequest *request) {
+    if (!request)
+        return NULL;
+
+    sd_varlink_unref(request->link);
+    return mfree(request);
+}
+
+DEFINE_TRIVIAL_CLEANUP_FUNC(RegisterRequest*, register_request_free);
 
 static int vl_method_register(
                 sd_varlink *link,
@@ -73,21 +180,42 @@ static int vl_method_register(
                 void *userdata) {
 
         static const sd_json_dispatch_field dispatch_table[] = {
-                { "id", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, offsetof (MethodRegisterParams, id), 0 },
+                { "id", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, offsetof (RegisterRequest, id), SD_JSON_MANDATORY },
+                { "collection", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, offsetof (RegisterRequest, collection), 0 },
+                { "sandbox", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, offsetof (RegisterRequest, sandbox), 0 },
+                // TODO: permissions and entitlements
                 {}
         };
-        MethodRegisterParams p = {};
+        _cleanup_(register_request_freep) RegisterRequest *request = NULL;
         int r;
 
         assert(link);
 
-        r = sd_varlink_dispatch(link, parameters, dispatch_table, &p);
+        request = new0(RegisterRequest, 1);
+        if (!request)
+                return -ENOMEM;
+
+        request->link = sd_varlink_ref(link);
+
+        r = sd_varlink_dispatch(link, parameters, dispatch_table, request);
         if (r != 0)
                 return r;
 
+        // Fetch pidfd of the caller
+        // Find the existing cgroup (see find_cgroup above)
+        // Check if app ID matches the one provided here at call site
+        // If matches
+        //      call augment() => augment returns varlink call
+        //      return
+        // Else if unit is sandboxed
+        //      Return conflicting identity error
+        // Else
+        //      Call StartTransientUnit()
+        //              => in callback, call augment() => which returns varlink call
+
         log_warning ("Not implemented! register(id='%s')", p.id);
 
-        return sd_varlink_reply (link, NULL);
+        return sd_varlink_reply(link, NULL);
 }
 
 static int vl_method_query(
@@ -101,6 +229,18 @@ static int vl_method_query(
         return sd_varlink_reply (link, NULL);
 }
 
+static int vl_method_set_permissions(
+                sd_varlink *link,
+                sd_json_variant *parameters,
+                sd_varlink_method_flags_t flags,
+                void *userdata) {
+
+        assert(link);
+
+        return sd_varlink_reply (link, NULL);
+}
+
+
 static int run(int argc, char *argv[]) {
         _cleanup_(sd_varlink_server_unrefp) sd_varlink_server *varlink_server = NULL;
         int r;
@@ -113,7 +253,8 @@ static int run(int argc, char *argv[]) {
         r = varlink_server_new(
                         &varlink_server,
                         SD_VARLINK_SERVER_HANDLE_SIGINT|
-                        SD_VARLINK_SERVER_HANDLE_SIGTERM,
+                        SD_VARLINK_SERVER_HANDLE_SIGTERM|
+                        SD_VARLINK_SERVER_INHERIT_USERDATA,
                         /* userdata= */ NULL);
         if (r < 0)
                 return log_error_errno(r, "Failed to allocate Varlink server: %m");
@@ -124,9 +265,9 @@ static int run(int argc, char *argv[]) {
 
         r = sd_varlink_server_bind_method_many(
                         varlink_server,
-                        "io.systemd.AppInstance.Register", vl_method_register_instance,
-                        "io.systemd.AppInstance.Query", vl_method_query_instance,
-                        "io.systemd.AppInstance.SetPermissions", vl_method_set_instance_permissions);
+                        "io.systemd.AppInstance.Register", vl_method_register,
+                        "io.systemd.AppInstance.Query", vl_method_query,
+                        "io.systemd.AppInstance.SetPermissions", vl_method_set_permissions);
         if (r < 0)
                 return log_error_errno(r, "Failed to bind Varlink methods: %m");
 
